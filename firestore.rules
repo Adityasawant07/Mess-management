@@ -1,0 +1,150 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profile(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function isVendor() {
+      return signedIn() && profile(request.auth.uid).role == 'vendor';
+    }
+
+    function isOwnMess(messId) {
+      return signedIn() &&
+        (
+          profile(request.auth.uid).messId == messId ||
+          (profile(request.auth.uid).role == 'vendor' && request.auth.uid == messId)
+        );
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (
+        request.auth.uid == uid ||
+        resource.data.role == 'vendor' ||
+        (isVendor() && profile(uid).role == 'student'));
+
+      allow create: if signedIn() && request.auth.uid == uid &&
+        request.resource.data.role in ['student', 'vendor'] &&
+        request.resource.data.balance is number;
+
+      allow update: if signedIn() &&
+        (
+          (request.auth.uid == uid &&
+            (
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny(['balance', 'role', 'messId']) ||
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']) ||
+              (profile(request.auth.uid).role == 'vendor' &&
+                request.resource.data.diff(resource.data).affectedKeys().hasOnly(['messId', 'messName']))
+            )) ||
+          (isVendor() &&
+            profile(uid).role == 'student' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']))
+        );
+    }
+
+    match /weekly_menus/{messId} {
+      allow read: if signedIn() && isOwnMess(messId);
+      allow create, update: if isVendor() &&
+        (
+          request.auth.uid == messId ||
+          profile(request.auth.uid).messId == messId
+        ) &&
+        request.resource.data.messId == messId &&
+        request.resource.data.published is bool &&
+        request.resource.data.days is map;
+      allow delete: if false;
+    }
+
+    match /meal_bookings/{bookingId} {
+      allow read: if signedIn() &&
+        (resource.data.uid == request.auth.uid ||
+          isVendor());
+
+      allow create: if signedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.status == 'booked' &&
+        request.resource.data.messId == profile(request.auth.uid).messId &&
+        request.resource.data.date is string &&
+        request.resource.data.mealType in ['breakfast', 'lunch', 'dinner'] &&
+        request.resource.data.foodType in ['veg', 'nonveg'] &&
+        request.resource.data.amount is number;
+
+      allow delete: if false;
+
+      allow update: if isVendor() &&
+        resource.data.messId == profile(request.auth.uid).messId &&
+        request.resource.data.status == 'consumed' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'consumedAt', 'consumedBy']);
+
+      allow update: if false;
+    }
+
+    match /mess_memberships/{membershipId} {
+      allow read: if signedIn() &&
+        (resource.data.uid == request.auth.uid ||
+          (isVendor() && resource.data.messId == profile(request.auth.uid).messId));
+      allow create: if signedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.role == 'student' &&
+        request.resource.data.active == true &&
+        request.resource.data.messId is string;
+      allow update, delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    match /balance_transactions/{transactionId} {
+      allow read: if signedIn() &&
+        (resource.data.uid == request.auth.uid ||
+          (isVendor() && resource.data.messId == profile(request.auth.uid).messId));
+
+      allow create: if signedIn() &&
+        request.resource.data.messId == profile(request.auth.uid).messId &&
+        request.resource.data.type in ['topup', 'deduction'] &&
+        request.resource.data.amount is number &&
+        request.resource.data.balanceAfter is number &&
+        (
+          (isVendor() && request.resource.data.uid is string) ||
+          (profile(request.auth.uid).role == 'student' &&
+           request.resource.data.uid == request.auth.uid)
+        );
+
+      allow update, delete: if false;
+    }
+
+    match /menu_ratings/{ratingId} {
+      allow read: if signedIn() &&
+        (
+          resource.data.uid == request.auth.uid ||
+          (isVendor() && resource.data.messId == profile(request.auth.uid).messId)
+        );
+      allow create: if signedIn() &&
+        profile(request.auth.uid).role == 'student' &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.messId == profile(request.auth.uid).messId &&
+        request.resource.data.day is string &&
+        request.resource.data.mealType in ['breakfast', 'lunch', 'dinner'] &&
+        request.resource.data.rating is number &&
+        request.resource.data.rating >= 1 &&
+        request.resource.data.rating <= 5;
+      allow update: if signedIn() &&
+        resource.data.uid == request.auth.uid &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.messId == resource.data.messId &&
+        request.resource.data.day == resource.data.day &&
+        request.resource.data.mealType == resource.data.mealType &&
+        request.resource.data.rating is number &&
+        request.resource.data.rating >= 1 &&
+        request.resource.data.rating <= 5 &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'updatedAt']);
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    match /daily_menu/{document=**} {
+      allow read: if signedIn();
+      allow write: if isVendor();
+    }
+  }
+}

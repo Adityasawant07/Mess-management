@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Mess",
+    "slug": "mess",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "icon": "./assets/splash-icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFF8F3"
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font"
+    ],
+    "android": {
+      "package": "com.anonymous.mess"
+    }
+  }
+}
